@@ -1,0 +1,17 @@
+name = "hatebusky"
+main = "src/worker.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "PLACEHOLDER_REPLACE_ON_DEPLOY"
+
+[vars]
+HATENA_USER = "snaka"
+PDS_URL = "https://bsky.social"
+MAX_POSTS_PER_RUN = "5"
+DRY_RUN = "false"
