@@ -2,16 +2,18 @@ name = "hatebusky"
 main = "src/worker.ts"
 compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
+# cron-only worker: no HTTP route, so don't publish to workers.dev
+workers_dev = false
 
 [triggers]
 crons = ["*/10 * * * *"]
 
 [[kv_namespaces]]
 binding = "STATE"
-id = "PLACEHOLDER_REPLACE_ON_DEPLOY"
+id = "afeff379dc0942e6a13bc8d14bb779ff"
 
 [vars]
-HATENA_USER = "snaka"
+HATENA_USER = "snaka72"
 PDS_URL = "https://bsky.social"
 MAX_POSTS_PER_RUN = "5"
 DRY_RUN = "false"
