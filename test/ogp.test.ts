@@ -42,4 +42,16 @@ describe("extractOgp", () => {
       <meta property="og:title" content="Second">`;
     expect(extractOgp(html, "https://example.com/")).toEqual({ title: "First" });
   });
+
+  it("keeps apostrophes inside double-quoted content", () => {
+    const html = `<meta property="og:description" content="It's a great day">`;
+    expect(extractOgp(html, "https://example.com/")).toEqual({
+      description: "It's a great day",
+    });
+  });
+
+  it("keeps double quotes inside single-quoted content", () => {
+    const html = `<meta property='og:title' content='He said "hi"'>`;
+    expect(extractOgp(html, "https://example.com/")).toEqual({ title: 'He said "hi"' });
+  });
 });

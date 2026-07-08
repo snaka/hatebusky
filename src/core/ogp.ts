@@ -7,8 +7,8 @@ export interface OgpData {
 const META_TAG_RE = /<meta\s[^>]*>/gi;
 
 function readAttr(tag: string, name: string): string | undefined {
-  const match = tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i"));
-  return match?.[1];
+  const match = tag.match(new RegExp(`${name}\\s*=\\s*(["'])(.*?)\\1`, "i"));
+  return match?.[2];
 }
 
 function decodeEntities(value: string): string {
