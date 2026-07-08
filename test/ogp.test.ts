@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractOgp } from "../src/core/ogp";
+import { decodeHtml, extractOgp } from "../src/core/ogp";
 
 describe("extractOgp", () => {
   it("extracts og:title, og:description and og:image", () => {
@@ -53,5 +53,35 @@ describe("extractOgp", () => {
   it("keeps double quotes inside single-quoted content", () => {
     const html = `<meta property='og:title' content='He said "hi"'>`;
     expect(extractOgp(html, "https://example.com/")).toEqual({ title: 'He said "hi"' });
+  });
+});
+
+describe("decodeHtml", () => {
+  // "日本語" in Shift_JIS bytes
+  const SJIS_NIHONGO = [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea];
+
+  function sjisHtml(prefixAscii: string): ArrayBuffer {
+    const ascii = Array.from(prefixAscii, (c) => c.charCodeAt(0));
+    return new Uint8Array([...ascii, ...SJIS_NIHONGO]).buffer;
+  }
+
+  it("decodes using the charset from the Content-Type header", () => {
+    const html = decodeHtml(sjisHtml("<html>"), "text/html; charset=Shift_JIS");
+    expect(html).toBe("<html>日本語");
+  });
+
+  it("decodes using a meta charset when the header has none", () => {
+    const html = decodeHtml(sjisHtml(`<meta charset="shift_jis">`), "text/html");
+    expect(html).toBe(`<meta charset="shift_jis">日本語`);
+  });
+
+  it("defaults to UTF-8 when no charset is declared", () => {
+    const bytes = new TextEncoder().encode("<html>日本語").buffer as ArrayBuffer;
+    expect(decodeHtml(bytes, "text/html")).toBe("<html>日本語");
+  });
+
+  it("falls back to UTF-8 on an unknown charset label", () => {
+    const bytes = new TextEncoder().encode("abc").buffer as ArrayBuffer;
+    expect(decodeHtml(bytes, "text/html; charset=bogus-charset")).toBe("abc");
   });
 });

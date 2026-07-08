@@ -64,6 +64,8 @@ npx wrangler deploy
 
 ## 開発
 
+ローカル実行にはダミー値で構わないので、`.dev.vars` に `BLUESKY_IDENTIFIER` / `BLUESKY_APP_PASSWORD` を書いてください。実際の投稿や KV への初回化書き込みを避けるため、`npx wrangler dev --test-scheduled --var DRY_RUN:true` のように `DRY_RUN` を有効にして試すのがおすすめです。
+
 ```bash
 npm test           # ユニットテスト
 npm run typecheck  # 型チェック

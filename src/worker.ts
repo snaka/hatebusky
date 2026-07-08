@@ -2,7 +2,7 @@ import { AtpAgent, BlobRef, RichText } from "@atproto/api";
 import type { Bookmark } from "./core/feed";
 import { parseFeed } from "./core/feed";
 import type { OgpData } from "./core/ogp";
-import { extractOgp } from "./core/ogp";
+import { decodeHtml, extractOgp } from "./core/ogp";
 import { buildPostText } from "./core/post-builder";
 import { selectUnposted } from "./core/select";
 
@@ -22,7 +22,12 @@ const USER_AGENT = "hatebusky (+https://github.com/snaka/hatebusky)";
 
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
-    await run(env);
+    try {
+      await run(env);
+    } catch (err) {
+      // never fail the cron invocation; the next run retries from KV state
+      console.error("run failed:", err);
+    }
   },
 };
 
@@ -55,11 +60,12 @@ async function run(env: Env): Promise<void> {
   const postedUrls = new Set(
     bookmarks.filter((_, i) => postedFlags[i] !== null).map((b) => b.url),
   );
-  const targets = selectUnposted(
-    bookmarks,
-    (url) => postedUrls.has(url),
-    Number(env.MAX_POSTS_PER_RUN),
-  );
+  const parsedMax = Number.parseInt(env.MAX_POSTS_PER_RUN, 10);
+  const maxPostsPerRun = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : 5;
+  if (maxPostsPerRun !== parsedMax) {
+    console.warn(`invalid MAX_POSTS_PER_RUN "${env.MAX_POSTS_PER_RUN}", using ${maxPostsPerRun}`);
+  }
+  const targets = selectUnposted(bookmarks, (url) => postedUrls.has(url), maxPostsPerRun);
   if (targets.length === 0) {
     console.log("no new bookmarks");
     return;
@@ -131,7 +137,7 @@ async function buildEmbed(
     });
     const contentType = res.headers.get("content-type") ?? "";
     if (res.ok && contentType.includes("text/html")) {
-      ogp = extractOgp(await res.text(), res.url);
+      ogp = extractOgp(decodeHtml(await res.arrayBuffer(), contentType), res.url);
     }
   } catch (err) {
     console.warn(`ogp fetch failed for ${bookmark.url}:`, err);
