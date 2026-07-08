@@ -1,145 +1,140 @@
-# hatebusky — Design Document
+# hatebusky — 設計ドキュメント
 
-Date: 2026-07-09
-Status: Approved
+日付: 2026-07-09
+ステータス: 承認済み
 
-## Overview
+## 概要
 
-hatebusky mirrors the user's public Hatena Bookmark entries to an AT Protocol
-account (Bluesky or any other PDS) as posts. It polls the public Hatena
-Bookmark RSS feed on a schedule, detects bookmarks that have not been posted
-yet, and posts each one as "comment text + link card".
+hatebusky は、ユーザーの公開はてなブックマークを AT プロトコルのアカウント
+（Bluesky またはその他の PDS）に投稿としてミラーリングする。はてなブックマークの
+公開 RSS フィードを定期的にポーリングし、未投稿のブックマークを検出して、
+それぞれを「コメント本文 + リンクカード」の形式で投稿する。
 
-Primary user: the author, but designed to be self-hostable by anyone
-(OSS, configuration via secrets/environment only — no multi-tenant support).
+主な利用者は作者自身だが、誰でもセルフホストできるように設計する
+（OSS として公開。設定はシークレット/環境変数のみで完結し、マルチテナント対応はしない）。
 
-## Requirements
+## 要件
 
-- Source: all **public** bookmarks of a single Hatena user (no Hatena
-  authentication; the public RSS feed is sufficient).
-- Target: a single AT Protocol account. The PDS URL is configurable so the
-  target can be the user's main account or a dedicated bot account on any PDS.
-- Post format: the bookmark comment as post text, Hatena tags appended as
-  hashtags (with rich-text facets), and the bookmarked URL attached as an
-  external-link embed (link card) with OGP title/description/image.
-- Latency: a new bookmark should appear on Bluesky within minutes to ~15
-  minutes.
-- Language/runtime: TypeScript on Cloudflare Workers.
+- 取得元: 単一はてなユーザーの**公開**ブックマークすべて（はてな側の認証は不要。
+  公開 RSS フィードで十分）。
+- 投稿先: 単一の AT プロトコルアカウント。PDS URL を設定可能にし、メインアカウント
+  でも任意の PDS 上の専用ボットアカウントでも使えるようにする。
+- 投稿形式: ブックマークコメントを本文とし、はてなのタグをハッシュタグとして末尾に
+  付与（リッチテキスト facets 付き）。ブックマークした URL は OGP のタイトル・説明・
+  画像付きの external embed（リンクカード）として添付する。
+- 遅延: 新しいブックマークが数分〜15分程度で Bluesky に反映されること。
+- 言語/ランタイム: TypeScript on Cloudflare Workers。
 
-## Architecture
+## アーキテクチャ
 
-Cloudflare Workers (TypeScript) + Cron Trigger (every 10 minutes, configurable
-in `wrangler.toml`) + Workers KV for posted-state tracking.
+Cloudflare Workers（TypeScript）+ Cron Trigger（10分間隔、`wrangler.toml` で変更可能）
++ Workers KV（投稿済み状態の管理）。
 
 ```
-[Cron Trigger, every 10 min]
+[Cron Trigger（10分毎）]
    |
    v
-1. Fetch Hatena public RSS
+1. はてなの公開RSSを取得
    https://b.hatena.ne.jp/{HATENA_USER}/bookmark.rss
-   (contains title, URL, comment, tags, timestamp)
+   （タイトル・URL・コメント・タグ・日時を含む）
    |
    v
-2. Diff against KV -> list of not-yet-posted bookmarks (oldest first)
+2. KVと突き合わせて未投稿のブックマーク一覧を得る（古い順）
    |
    v
-3. For each bookmark (up to MAX_POSTS_PER_RUN, default 5):
-   - Fetch the bookmarked page's OGP metadata, build a link card
-     (upload og:image via uploadBlob when available)
-   - Build post text = comment + hashtags (facets via @atproto/api RichText)
-   - Create the post via @atproto/api
+3. 各ブックマークについて（1実行あたり最大 MAX_POSTS_PER_RUN 件、デフォルト5）:
+   - ブックマーク先ページのOGPメタデータを取得しリンクカードを構築
+     （og:image があれば uploadBlob でアップロード）
+   - 本文 = コメント + ハッシュタグ（@atproto/api の RichText で facets 生成）
+   - @atproto/api で投稿を作成
    |
    v
-4. Mark each bookmark as posted in KV only after its post succeeds
+4. 投稿が成功したものだけをKVに「投稿済み」として記録
 ```
 
-### Components
+### コンポーネント
 
-- `src/core/feed.ts` — parse the Hatena Bookmark RSS (RDF) feed into a list
-  of `Bookmark { url, title, comment, tags, bookmarkedAt }`. Pure function
-  over the XML string.
-- `src/core/post-builder.ts` — build the post record: text assembly
-  (comment + hashtags), grapheme-limit handling, facet generation. Pure.
-- `src/core/ogp.ts` — fetch a page and extract OGP metadata
-  (og:title / og:description / og:image) with graceful fallbacks.
-- `src/worker.ts` — thin Workers entry point: cron handler, KV wiring,
-  secrets, Bluesky agent session, per-item orchestration.
+- `src/core/feed.ts` — はてなブックマークの RSS（RDF）フィードを
+  `Bookmark { url, title, comment, tags, bookmarkedAt }` のリストにパースする。
+  XML 文字列を入力とする純粋関数。
+- `src/core/post-builder.ts` — 投稿レコードの構築: 本文の組み立て
+  （コメント + ハッシュタグ）、書記素数制限の処理、facets の生成。純粋関数。
+- `src/core/ogp.ts` — ページを取得して OGP メタデータ
+  （og:title / og:description / og:image）を抽出する。失敗時は段階的にフォールバック。
+- `src/worker.ts` — 薄い Workers エントリポイント: cron ハンドラ、KV の配線、
+  シークレット、Bluesky エージェントのセッション、アイテムごとのオーケストレーション。
 
-Core logic is platform-agnostic so a CLI runner can be added later without
-touching `src/core/`.
+コアロジックはプラットフォーム非依存にし、将来 `src/core/` に手を入れずに
+CLI ランナーを追加できるようにする。
 
-### Configuration
+### 設定
 
-Secrets (via `wrangler secret`):
+シークレット（`wrangler secret` で設定）:
 
-- `BLUESKY_IDENTIFIER` — handle or DID
-- `BLUESKY_APP_PASSWORD` — app password
+- `BLUESKY_IDENTIFIER` — ハンドルまたは DID
+- `BLUESKY_APP_PASSWORD` — アプリパスワード
 
-Vars (in `wrangler.toml`):
+変数（`wrangler.toml` で設定）:
 
-- `HATENA_USER` — Hatena account whose public bookmarks are mirrored
-- `PDS_URL` — default `https://bsky.social`
-- `MAX_POSTS_PER_RUN` — default `5`
-- `DRY_RUN` — when true, log what would be posted instead of posting
+- `HATENA_USER` — ミラーリング対象の公開ブックマークを持つはてなアカウント
+- `PDS_URL` — デフォルト `https://bsky.social`
+- `MAX_POSTS_PER_RUN` — デフォルト `5`
+- `DRY_RUN` — true のとき投稿せず、投稿予定の内容をログ出力するのみ
 
-### State (Workers KV)
+### 状態管理（Workers KV）
 
-- `posted:<bookmark URL>` → ISO timestamp. Presence means "already posted".
-- `initialized` → set on first run. On the very first run the worker marks
-  every item currently in the feed as posted **without posting**, preventing
-  a backlog flood.
+- `posted:<ブックマークURL>` → ISO タイムスタンプ。キーが存在すれば「投稿済み」。
+- `initialized` — 初回実行時にセット。初回実行では、フィードに現在含まれる
+  全アイテムを**投稿せずに**投稿済みとして記録し、過去分の洪水を防ぐ。
 
-KV free-tier limits (1k writes/day, 100k reads/day) are far above expected
-usage (144 cron runs/day, a handful of bookmarks/day).
+KV の無料枠（書き込み1,000回/日、読み取り10万回/日）は想定利用量
+（cron 144回/日、ブックマーク数件/日）に対して十分な余裕がある。
 
-## Post format details
+## 投稿フォーマットの詳細
 
-- Text = comment, then hashtags derived from Hatena tags (`#tech #AI`),
-  as rich-text facets.
-- No comment → hashtags only; no comment and no tags → empty text with the
-  link card only (the card carries the title).
-- If text exceeds Bluesky's 300-grapheme limit (possible: 100-char comment
-  plus many tags), drop hashtags from the end until it fits. The comment
-  itself always fits.
-- Link card: external embed with OGP title/description; og:image is uploaded
-  as a blob. If the image exceeds Bluesky's blob size limit (~1 MB), fall
-  back to a card without an image (no resizing — YAGNI).
+- 本文 = コメント、その後にはてなタグ由来のハッシュタグ（`#tech #AI`）を
+  リッチテキスト facets 付きで付与。
+- コメントなし → ハッシュタグのみ。コメントもタグもなし → 本文は空でリンクカードのみ
+  （タイトルはカードが担う）。
+- 本文が Bluesky の300書記素制限を超える場合（コメント100文字 + 多数のタグで理論上
+  起こりうる）、ハッシュタグを末尾から削って収める。コメント自体は必ず収まる。
+- リンクカード: OGP のタイトル・説明付き external embed。og:image は blob として
+  アップロードする。画像が Bluesky の blob サイズ上限（約1MB）を超える場合は
+  画像なしカードにフォールバック（リサイズはしない。YAGNI）。
 
-## Error handling
+## エラー処理
 
-- Each bookmark is processed in its own try/catch: one failure does not
-  block the others, and a failed item is simply not marked as posted, so the
-  next cron run retries it automatically.
-- Post first, then mark in KV. A lost mark could cause a rare duplicate
-  post; a lost post cannot happen. Accepted trade-off.
-- OGP fetch failure → fall back to a card built from the RSS title, no image.
-- RSS fetch failure → log and skip this run; next run retries.
+- 各ブックマークは独立した try/catch で処理する。1件の失敗が他をブロックせず、
+  失敗したアイテムは投稿済みとして記録されないため、次回の cron 実行で自動的に
+  リトライされる。
+- 「投稿 → KV記録」の順とする。記録の失敗により稀に二重投稿が起こりうるが、
+  投稿の取りこぼしは起こらない。許容するトレードオフ。
+- OGP 取得失敗 → RSS のタイトルから構築した画像なしカードにフォールバック。
+- RSS 取得失敗 → ログに記録してその回はスキップ。次回リトライ。
 
-## Out of scope
+## スコープ外
 
-- Private bookmarks (would require Hatena OAuth).
-- Following bookmark deletions or comment edits (posts are one-shot).
-- Tag-based include/exclude filtering (may be added later).
-- Multi-user / hosted service operation.
+- 非公開ブックマーク（はてな OAuth が必要になるため）。
+- ブックマーク削除・コメント編集への追従（投稿は一度きり）。
+- タグによる包含/除外フィルタリング（将来追加の可能性あり）。
+- マルチユーザー / ホステッドサービスとしての運用。
 
-## Testing
+## テスト
 
-- Unit tests (Vitest) for everything in `src/core/`: RSS parsing,
-  post-text assembly, grapheme counting/truncation, tag-to-hashtag
-  conversion. Developed test-first.
-- Workers integration verified manually via `wrangler dev` plus the
-  `DRY_RUN` mode.
+- `src/core/` のすべてに対する Vitest でのユニットテスト: RSS パース、本文組み立て、
+  書記素カウント/切り詰め、タグ→ハッシュタグ変換。テストファーストで開発する。
+- Workers 統合部分は `wrangler dev` と `DRY_RUN` モードによる手動確認。
 
-## Dependencies
+## 依存パッケージ
 
-- `@atproto/api` — official AT Protocol SDK.
-- `fast-xml-parser` — RSS/RDF parsing; works on Workers (no DOM available).
-- Dev: `wrangler`, `vitest`, `typescript`.
+- `@atproto/api` — AT プロトコル公式 SDK。
+- `fast-xml-parser` — RSS/RDF パース用。Workers 上で動作する（DOM が使えないため）。
+- 開発用: `wrangler`、`vitest`、`typescript`。
 
-All are widely used mainstream packages; a supply-chain check will be
-performed and reported at installation time per user policy.
+いずれも広く使われている定番パッケージ。ユーザーポリシーに従い、インストール時に
+サプライチェーンチェックを実施して報告する。
 
-## Repository layout
+## リポジトリ構成
 
 ```
 src/
@@ -150,5 +145,5 @@ src/
   worker.ts
 test/
 wrangler.toml
-README.md        # setup instructions (English)
+README.md        # セットアップ手順（日本語）
 ```
