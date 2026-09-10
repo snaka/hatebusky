@@ -73,5 +73,4 @@ npm run dev        # ローカル実行（別ターミナルから下記でト�
 # curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 ```
 
-設計ドキュメント: [docs/superpowers/specs/2026-07-09-hatebusky-design.md](docs/superpowers/specs/2026-07-09-hatebusky-design.md)
 今後の改善候補: [docs/ROADMAP.md](docs/ROADMAP.md)
