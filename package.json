@@ -22,9 +22,9 @@
     "fast-xml-parser": "^5.10.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
+    "@cloudflare/workers-types": "^5.20261003.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.107.1"
+    "wrangler": "^4.147.0"
   }
 }
